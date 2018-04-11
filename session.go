@@ -71,6 +71,8 @@ type Session struct {
 	isClosed bool
 }
 
+const DEFAULT_IDEMPOTENCE = false
+
 var queryPool = &sync.Pool{
 	New: func() interface{} {
 		return new(Query)
@@ -1520,6 +1522,16 @@ func (b *Batch) GetRoutingKey() ([]byte, error) {
 	return nil, nil
 }
 
+func (b *Batch) isBatchIdempotent() (bool) {
+	for _, entry := range b.Entries {
+		if entry.idempotent != true {
+			return false
+		}
+	}
+
+	return true
+}
+
 type BatchType byte
 
 const (
@@ -1531,6 +1543,7 @@ const (
 type BatchEntry struct {
 	Stmt    string
 	Args    []interface{}
+	idempotent bool
 	binding func(q *QueryInfo) ([]interface{}, error)
 }
 
