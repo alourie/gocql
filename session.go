@@ -71,8 +71,6 @@ type Session struct {
 	isClosed bool
 }
 
-const DEFAULT_IDEMPOTENCE = false
-
 var queryPool = &sync.Pool{
 	New: func() interface{} {
 		return new(Query)

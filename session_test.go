@@ -247,7 +247,7 @@ func TestBatchBasicAPI(t *testing.T) {
 	testTypes := []interface{}{1, true, b, 1.23}
 	for val := range testTypes {
 		err := b.Query(val, 1)
-		assertEqual(t, "checking batch.Query errors", expError.Error(), err.Error())
+		assertEqual(t, "batch.Query() error", expError.Error(), err.Error())
 	}
 
 	// Test batch.Bind()
@@ -277,12 +277,14 @@ func TestBatchBasicAPI(t *testing.T) {
 	expError = fmt.Errorf("only 'string' and 'Query' types are accepted as the first argument to batch.Bind()")
 	for val := range testTypes {
 		err := b.Bind(val, func(*QueryInfo) ([]interface{}, error) { return nil, nil })
-		assertEqual(t, "checking batch.Bind errors", expError.Error(), err.Error())
+		assertEqual(t, "batch.Bind() error", expError.Error(), err.Error())
 	}
 
 	// Test Batch idempotance
+	// False
 	assertFalse(t, "test Batch idempotence with simple queries, should be false", b.isBatchIdempotent())
 
+	// True; build a slice with all batch entries with idempotence set to true
 	newBatch := b
 	newBatch.Entries = []BatchEntry{b.Entries[1], b.Entries[3]}
 	assertTrue(t, "test Batch built from Queries with true idempotence set", newBatch.isBatchIdempotent())
@@ -349,21 +351,3 @@ func TestIsUseStatement(t *testing.T) {
 		}
 	}
 }
-
-/* Initial work for testing the query parser in
-func TestQueryDetectIdempotence(t *testing.T) {
-	testCases := []struct {
-		input Query
-		exp bool
-	}{
-		{"SELECT * from mykeyspace.mytable", true},
-		{"UPDATE mykeyspace.mytable WITH incr(c) WHERE k=1", false},
-		{"UPDATE mykeyspace.mytable WITH l = l + [1] WHERE k=1", false},
-		{"DELETE l[1] FROM mykeyspace.mytable WHERE k=1", false},
-		{"UPDATE mykeyspace.mytable WITH v=now() WHERE k=1", false},
-		{"UPDATE mykeyspace.mytable WITH v=fcall(\"CustomFunc\") WHERE k=1", false},
-		{"UPDATE mykeyspace.mytable WITH v=raw(\"CustomString\") WHERE k=1", false},
-	}
-}
-
-*/
