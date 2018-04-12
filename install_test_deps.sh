@@ -9,9 +9,8 @@ pushd ccm
 ./setup.py install --user
 popd
 
-REPO_SLUG = $1
 if [ "$1" != "gocql/gocql" ]; then
-    USER=$(echo $REPO_SLUG | cut -f1 -d'/')
+    USER=$(echo $1 | cut -f1 -d'/')
     cd ../..
     mv ${USER} gocql
 fi
