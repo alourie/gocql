@@ -117,6 +117,13 @@ func TestQueryBasicAPI(t *testing.T) {
 		t.Fatalf("expected Query.GetConsistency to return 'All', got '%s'", qry.GetConsistency())
 	}
 
+	qry.session = &Session{}
+	assertFalse(t, "getting idempotence from query when not specifically set", qry.GetIdempotence())
+	qry.session.cfg.DefaultIdempotence = true
+	assertTrue(t, "getting idempotence from query but with default set to true", qry.GetIdempotence())
+	qry.SetIdempotence(true)
+	assertTrue(t, "get idempotence from query when it was set to true", qry.GetIdempotence())
+
 	trace := &traceWriter{}
 	qry.Trace(trace)
 	if qry.trace != trace {
@@ -182,6 +189,7 @@ func TestBatchBasicAPI(t *testing.T) {
 
 	s.pool = cfg.PoolConfig.buildPool(s)
 
+	// Test UnloggedBatch
 	b := s.NewBatch(UnloggedBatch)
 	if b.Type != UnloggedBatch {
 		t.Fatalf("expceted batch.Type to be '%v', got '%v'", UnloggedBatch, b.Type)
@@ -189,16 +197,19 @@ func TestBatchBasicAPI(t *testing.T) {
 		t.Fatalf("expceted batch.RetryPolicy to be '%v', got '%v'", cfg.RetryPolicy, b.rt)
 	}
 
+	// Test LoggedBatch
 	b = NewBatch(LoggedBatch)
 	if b.Type != LoggedBatch {
 		t.Fatalf("expected batch.Type to be '%v', got '%v'", LoggedBatch, b.Type)
 	}
 
+	// Test attempts
 	b.attempts = 1
 	if b.Attempts() != 1 {
 		t.Fatalf("expceted batch.Attempts() to return %v, got %v", 1, b.Attempts())
 	}
 
+	// Test latency
 	if b.Latency() != 0 {
 		t.Fatalf("expected batch.Latency() to be 0, got %v", b.Latency())
 	}
@@ -208,11 +219,13 @@ func TestBatchBasicAPI(t *testing.T) {
 		t.Fatalf("expected batch.Latency() to return %v, got %v", 4, b.Latency())
 	}
 
+	// Test Consistency
 	b.Cons = One
 	if b.GetConsistency() != One {
 		t.Fatalf("expected batch.GetConsistency() to return 'One', got '%s'", b.GetConsistency())
 	}
 
+	// Test batch.Query()
 	b.Query("test", 1)
 	if b.Entries[0].Stmt != "test" {
 		t.Fatalf("expected batch.Entries[0].Statement to be 'test', got '%v'", b.Entries[0].Stmt)
@@ -220,15 +233,46 @@ func TestBatchBasicAPI(t *testing.T) {
 		t.Fatalf("expected batch.Entries[0].Args[0] to be 1, got %v", b.Entries[0].Args[0])
 	}
 
+	b.Query(Query{stmt: "test", idempotence: Idempotence{set: true, value: true}}, 1)
+	if b.Entries[1].Stmt != "test" {
+		t.Fatalf("expected batch.Entries[1].Statement to be 'test', got '%v'", b.Entries[1].Stmt)
+	} else if b.Entries[1].Args[0].(int) != 1 {
+		t.Fatalf("expected batch.Entries[1].Args[0] to be 1, got %v", b.Entries[1].Args[0])
+	} else if !b.Entries[1].idempotent {
+		t.Fatalf("expected batch.Entries[1].idempotent to be true, got false")
+	}
+
+	// Test batch.Bind()
 	b.Bind("test2", func(q *QueryInfo) ([]interface{}, error) {
 		return nil, nil
 	})
 
-	if b.Entries[1].Stmt != "test2" {
-		t.Fatalf("expected batch.Entries[1].Statement to be 'test2', got '%v'", b.Entries[1].Stmt)
-	} else if b.Entries[1].binding == nil {
-		t.Fatal("expected batch.Entries[1].binding to be defined, got nil")
+	if b.Entries[2].Stmt != "test2" {
+		t.Fatalf("expected batch.Entries[2].Statement to be 'test2', got '%v'", b.Entries[2].Stmt)
+	} else if b.Entries[2].binding == nil {
+		t.Fatal("expected batch.Entries[2].binding to be defined, got nil")
 	}
+
+	b.Bind(Query{stmt: "test2", idempotence: Idempotence{set: true, value: true}}, func(q *QueryInfo) ([]interface{}, error) {
+		return nil, nil
+	})
+
+	if b.Entries[3].Stmt != "test2" {
+		t.Fatalf("expected batch.Entries[3].Statement to be 'test2', got '%v'", b.Entries[3].Stmt)
+	} else if b.Entries[3].binding == nil {
+		t.Fatal("expected batch.Entries[3].binding to be defined, got nil")
+	} else if !b.Entries[3].idempotent {
+		t.Fatalf("expected batch.Entries[3].idempotent to be true, got false")
+	}
+
+	// Test Batch idempotance
+	assertFalse(t, "test Batch idempotence with simple queries, should be false", b.isBatchIdempotent())
+
+	newBatch := b
+	newBatch.Entries = []BatchEntry{b.Entries[1], b.Entries[3]}
+	assertTrue(t, "test Batch built from Queries with true idempotence set", newBatch.isBatchIdempotent())
+
+	// Test RetryPolicy
 	r := &SimpleRetryPolicy{NumRetries: 4}
 
 	b.RetryPolicy(r)
@@ -290,3 +334,21 @@ func TestIsUseStatement(t *testing.T) {
 		}
 	}
 }
+
+/* Initial work for testing the query parser in
+func TestQueryDetectIdempotence(t *testing.T) {
+	testCases := []struct {
+		input Query
+		exp bool
+	}{
+		{"SELECT * from mykeyspace.mytable", true},
+		{"UPDATE mykeyspace.mytable WITH incr(c) WHERE k=1", false},
+		{"UPDATE mykeyspace.mytable WITH l = l + [1] WHERE k=1", false},
+		{"DELETE l[1] FROM mykeyspace.mytable WHERE k=1", false},
+		{"UPDATE mykeyspace.mytable WITH v=now() WHERE k=1", false},
+		{"UPDATE mykeyspace.mytable WITH v=fcall(\"CustomFunc\") WHERE k=1", false},
+		{"UPDATE mykeyspace.mytable WITH v=raw(\"CustomString\") WHERE k=1", false},
+	}
+}
+
+*/

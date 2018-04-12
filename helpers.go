@@ -19,6 +19,12 @@ type RowData struct {
 	Values  []interface{}
 }
 
+// Idempotence. It can be either true or false, and set or not set, hence bool won't do
+type Idempotence struct {
+	set   bool
+	value bool
+}
+
 func goType(t TypeInfo) reflect.Type {
 	switch t.Type() {
 	case TypeVarchar, TypeAscii, TypeInet, TypeText:

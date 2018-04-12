@@ -2,9 +2,9 @@ package gocql
 
 import (
 	"net"
+	"reflect"
 	"testing"
 	"time"
-	"reflect"
 )
 
 func TestNewCluster_Defaults(t *testing.T) {
@@ -53,4 +53,12 @@ func TestClusterConfig_translateAddressAndPort_Success(t *testing.T) {
 	newAddr, newPort := cfg.translateAddressPort(net.ParseIP("10.0.0.1"), 2345)
 	assertTrue(t, "translated address", net.ParseIP("10.10.10.10").Equal(newAddr))
 	assertEqual(t, "translated port", 5432, newPort)
+}
+
+func TestClusterConfig_testIdempotancy(t *testing.T) {
+	cfg := NewCluster()
+	assertFalse(t, "cluster config default idempotancy", cfg.DefaultIdempotence)
+	cfg.DefaultIdempotence = true
+	assertTrue(t, "cluster config changed default idempotancy", cfg.DefaultIdempotence)
+
 }

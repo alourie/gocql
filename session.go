@@ -675,6 +675,7 @@ type Query struct {
 	defaultTimestampValue int64
 	disableSkipMetadata   bool
 	context               context.Context
+	idempotence           Idempotence
 
 	disableAutoPage bool
 }
@@ -1066,6 +1067,22 @@ func (q *Query) reset() {
 	q.context = nil
 }
 
+func (q *Query) GetIdempotence() bool {
+	if q.idempotence.set {
+		return q.idempotence.value
+	} else {
+		return q.session.cfg.DefaultIdempotence
+	}
+}
+
+func (q *Query) SetIdempotence(value bool) {
+	q.idempotence = Idempotence{set: true, value: value}
+}
+
+func (q *Query) detectIdempotence() {
+	fmt.Printf("Checking idempotence of the %s, it's %b ", q.String(), q.GetIdempotence())
+}
+
 // Iter represents an iterator that can be used to iterate over all rows that
 // were returned by a query. The iterator might send additional queries to the
 // database during the iteration if paging was enabled.
@@ -1385,7 +1402,7 @@ func (s *Session) NewBatch(typ BatchType) *Batch {
 		Type:             typ,
 		rt:               s.cfg.RetryPolicy,
 		serialCons:       s.cfg.SerialConsistency,
-		observer: s.batchObserver,
+		observer:         s.batchObserver,
 		Cons:             s.cons,
 		defaultTimestamp: s.cfg.DefaultTimestamp,
 		keyspace:         s.cfg.Keyspace,
@@ -1424,16 +1441,30 @@ func (b *Batch) GetConsistency() Consistency {
 	return b.Cons
 }
 
-// Query adds the query to the batch operation
-func (b *Batch) Query(stmt string, args ...interface{}) {
-	b.Entries = append(b.Entries, BatchEntry{Stmt: stmt, Args: args})
+// Query adds the query to the batch operation, supports simple string or Query
+func (b *Batch) Query(query interface{}, args ...interface{}) {
+	switch q := query.(type) {
+	case string:
+		b.Entries = append(b.Entries, BatchEntry{Stmt: q, Args: args, idempotent: false})
+	case Query:
+		b.Entries = append(b.Entries, BatchEntry{Stmt: q.stmt, Args: args, idempotent: q.GetIdempotence()})
+	default:
+		fmt.Errorf("only 'string' and 'Query' types are accepted as the first argument to batch.Query()")
+	}
 }
 
 // Bind adds the query to the batch operation and correlates it with a binding callback
 // that will be invoked when the batch is executed. The binding callback allows the application
 // to define which query argument values will be marshalled as part of the batch execution.
-func (b *Batch) Bind(stmt string, bind func(q *QueryInfo) ([]interface{}, error)) {
-	b.Entries = append(b.Entries, BatchEntry{Stmt: stmt, binding: bind})
+func (b *Batch) Bind(query interface{}, bind func(q *QueryInfo) ([]interface{}, error)) {
+	switch q := query.(type) {
+	case string:
+		b.Entries = append(b.Entries, BatchEntry{Stmt: q, binding: bind, idempotent: false})
+	case Query:
+		b.Entries = append(b.Entries, BatchEntry{Stmt: q.stmt, binding: bind, idempotent: q.GetIdempotence()})
+	default:
+		fmt.Errorf("only 'string' and 'Query' types are accepted as the first argument to batch.Bind()")
+	}
 }
 
 func (b *Batch) retryPolicy() RetryPolicy {
@@ -1522,9 +1553,9 @@ func (b *Batch) GetRoutingKey() ([]byte, error) {
 	return nil, nil
 }
 
-func (b *Batch) isBatchIdempotent() (bool) {
+func (b *Batch) isBatchIdempotent() bool {
 	for _, entry := range b.Entries {
-		if entry.idempotent != true {
+		if !entry.idempotent {
 			return false
 		}
 	}
@@ -1541,10 +1572,10 @@ const (
 )
 
 type BatchEntry struct {
-	Stmt    string
-	Args    []interface{}
+	Stmt       string
+	Args       []interface{}
 	idempotent bool
-	binding func(q *QueryInfo) ([]interface{}, error)
+	binding    func(q *QueryInfo) ([]interface{}, error)
 }
 
 type ColumnInfo struct {
