@@ -1080,7 +1080,7 @@ func (q *Query) SetIdempotence(value bool) {
 }
 
 func (q *Query) detectIdempotence() {
-	fmt.Printf("Checking idempotence of the %s, it's %b ", q.String(), q.GetIdempotence())
+	fmt.Printf("Checking idempotence of the %s, it's %v ", q.String(), q.GetIdempotence())
 }
 
 // Iter represents an iterator that can be used to iterate over all rows that
@@ -1442,28 +1442,32 @@ func (b *Batch) GetConsistency() Consistency {
 }
 
 // Query adds the query to the batch operation, supports simple string or Query
-func (b *Batch) Query(query interface{}, args ...interface{}) {
+func (b *Batch) Query(query interface{}, args ...interface{}) error {
 	switch q := query.(type) {
 	case string:
 		b.Entries = append(b.Entries, BatchEntry{Stmt: q, Args: args, idempotent: false})
+		return nil
 	case Query:
 		b.Entries = append(b.Entries, BatchEntry{Stmt: q.stmt, Args: args, idempotent: q.GetIdempotence()})
+		return nil
 	default:
-		fmt.Errorf("only 'string' and 'Query' types are accepted as the first argument to batch.Query()")
+		return fmt.Errorf("only 'string' and 'Query' types are accepted as the first argument to batch.Query()")
 	}
 }
 
 // Bind adds the query to the batch operation and correlates it with a binding callback
 // that will be invoked when the batch is executed. The binding callback allows the application
 // to define which query argument values will be marshalled as part of the batch execution.
-func (b *Batch) Bind(query interface{}, bind func(q *QueryInfo) ([]interface{}, error)) {
+func (b *Batch) Bind(query interface{}, bind func(q *QueryInfo) ([]interface{}, error)) error {
 	switch q := query.(type) {
 	case string:
 		b.Entries = append(b.Entries, BatchEntry{Stmt: q, binding: bind, idempotent: false})
+		return nil
 	case Query:
 		b.Entries = append(b.Entries, BatchEntry{Stmt: q.stmt, binding: bind, idempotent: q.GetIdempotence()})
+		return nil
 	default:
-		fmt.Errorf("only 'string' and 'Query' types are accepted as the first argument to batch.Bind()")
+		return fmt.Errorf("only 'string' and 'Query' types are accepted as the first argument to batch.Bind()")
 	}
 }
 

@@ -34,6 +34,10 @@ install:
   - pushd ccm
   - ./setup.py install --user
   - popd
+  - cd ../../
+  - mkdir gocql
+  - mv $TRAVIS_REPO_SLUG gocql
+  - cd gocql/gocql
   - go get .
 
 script:

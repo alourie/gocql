@@ -242,6 +242,14 @@ func TestBatchBasicAPI(t *testing.T) {
 		t.Fatalf("expected batch.Entries[1].idempotent to be true, got false")
 	}
 
+	// test batch.Query() with wrong types
+	expError := fmt.Errorf("only 'string' and 'Query' types are accepted as the first argument to batch.Query()")
+	testTypes := []interface{}{1, true, b, 1.23}
+	for val := range testTypes {
+		err := b.Query(val, 1)
+		assertEqual(t, "checking batch.Query errors", expError.Error(), err.Error())
+	}
+
 	// Test batch.Bind()
 	b.Bind("test2", func(q *QueryInfo) ([]interface{}, error) {
 		return nil, nil
@@ -263,6 +271,13 @@ func TestBatchBasicAPI(t *testing.T) {
 		t.Fatal("expected batch.Entries[3].binding to be defined, got nil")
 	} else if !b.Entries[3].idempotent {
 		t.Fatalf("expected batch.Entries[3].idempotent to be true, got false")
+	}
+
+	// test batch.Bind() with wrong types
+	expError = fmt.Errorf("only 'string' and 'Query' types are accepted as the first argument to batch.Bind()")
+	for val := range testTypes {
+		err := b.Bind(val, func(*QueryInfo) ([]interface{}, error) { return nil, nil })
+		assertEqual(t, "checking batch.Bind errors", expError.Error(), err.Error())
 	}
 
 	// Test Batch idempotance
