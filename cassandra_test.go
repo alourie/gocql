@@ -1741,11 +1741,11 @@ func TestQueryStats(t *testing.T) {
 	if err := qry.Exec(); err != nil {
 		t.Fatalf("query failed. %v", err)
 	} else {
-		if qry.Attempts() < 1 {
+		if qry.Attempts(qry.Iter().Host()) < 1 {
 			t.Fatal("expected at least 1 attempt, but got 0")
 		}
-		if qry.Latency() <= 0 {
-			t.Fatalf("expected latency to be greater than 0, but got %v instead.", qry.Latency())
+		if qry.Latency(qry.Iter().Host()) <= 0 {
+			t.Fatalf("expected latency to be greater than 0, but got %v instead.", qry.Latency(qry.Iter().Host()))
 		}
 	}
 }
@@ -1779,14 +1779,15 @@ func TestBatchStats(t *testing.T) {
 	b.Query("INSERT INTO batchStats (id) VALUES (?)", 1)
 	b.Query("INSERT INTO batchStats (id) VALUES (?)", 2)
 
-	if err := session.ExecuteBatch(b); err != nil {
+	iter := session.executeBatch(b)
+	if err := iter.Close(); err != nil {
 		t.Fatalf("query failed. %v", err)
 	} else {
-		if b.Attempts() < 1 {
+		if b.Attempts(iter.host) < 1 {
 			t.Fatal("expected at least 1 attempt, but got 0")
 		}
-		if b.Latency() <= 0 {
-			t.Fatalf("expected latency to be greater than 0, but got %v instead.", b.Latency())
+		if b.Latency(iter.host) <= 0 {
+			t.Fatalf("expected latency to be greater than 0, but got %v instead.", b.Latency(iter.host))
 		}
 	}
 }
@@ -2865,14 +2866,15 @@ func TestUnsetColBatch(t *testing.T) {
 	b.Query("INSERT INTO gocql_test.batchUnsetInsert(id, my_int, my_text) VALUES (?,?,?)", 1, UnsetValue, "")
 	b.Query("INSERT INTO gocql_test.batchUnsetInsert(id, my_int, my_text) VALUES (?,?,?)", 2, 2, UnsetValue)
 
-	if err := session.ExecuteBatch(b); err != nil {
+	iter := session.executeBatch(b)
+	if err := iter.Close(); err != nil {
 		t.Fatalf("query failed. %v", err)
 	} else {
-		if b.Attempts() < 1 {
+		if b.Attempts(iter.host) < 1 {
 			t.Fatal("expected at least 1 attempt, but got 0")
 		}
-		if b.Latency() <= 0 {
-			t.Fatalf("expected latency to be greater than 0, but got %v instead.", b.Latency())
+		if b.Latency(iter.host) <= 0 {
+			t.Fatalf("expected latency to be greater than 0, but got %v instead.", b.Latency(iter.host))
 		}
 	}
 	var id, mInt, count int

@@ -304,12 +304,13 @@ func TestQueryRetry(t *testing.T) {
 	rt := &SimpleRetryPolicy{NumRetries: 1}
 
 	qry := db.Query("kill").RetryPolicy(rt)
-	if err := qry.Exec(); err == nil {
+	iter := qry.Iter()
+	if err := iter.Close(); err == nil {
 		t.Fatalf("expected error")
 	}
 
 	requests := atomic.LoadInt64(&srv.nKillReq)
-	attempts := qry.Attempts()
+	attempts := qry.Attempts(iter.host)
 	if requests != int64(attempts) {
 		t.Fatalf("expected requests %v to match query attempts %v", requests, attempts)
 	}

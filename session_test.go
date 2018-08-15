@@ -5,6 +5,7 @@ package gocql
 import (
 	"context"
 	"fmt"
+	"net"
 	"testing"
 )
 
@@ -99,17 +100,21 @@ func (f funcQueryObserver) ObserveQuery(ctx context.Context, o ObservedQuery) {
 func TestQueryBasicAPI(t *testing.T) {
 	qry := &Query{}
 
-	if qry.Latency() != 0 {
-		t.Fatalf("expected Query.Latency() to return 0, got %v", qry.Latency())
+	// Initialise metrics
+	qry.metrics = make(map[string]*QueryMetric)
+	// Initiate host
+	host := &HostInfo{connectAddress: net.ParseIP("127.0.0.1")}
+	qry.metrics[host.connectAddress.String()] = &QueryMetric{attempts: 0, totalLatency: 0}
+	if qry.Latency(host) != 0 {
+		t.Fatalf("expected Query.Latency() to return 0, got %v", qry.Latency(host))
 	}
 
-	qry.attempts = 2
-	qry.totalLatency = 4
-	if qry.Attempts() != 2 {
-		t.Fatalf("expected Query.Attempts() to return 2, got %v", qry.Attempts())
+	qry.metrics[host.connectAddress.String()] = &QueryMetric{attempts: 2, totalLatency: 4}
+	if qry.Attempts(host) != 2 {
+		t.Fatalf("expected Query.Attempts() to return 2, got %v", qry.Attempts(host))
 	}
-	if qry.Latency() != 2 {
-		t.Fatalf("expected Query.Latency() to return 2, got %v", qry.Latency())
+	if qry.Latency(host) != 2 {
+		t.Fatalf("expected Query.Latency() to return 2, got %v", qry.Latency(host))
 	}
 
 	qry.Consistency(All)
@@ -198,18 +203,18 @@ func TestBatchBasicAPI(t *testing.T) {
 
 	// Test attempts
 	b.attempts = 1
-	if b.Attempts() != 1 {
-		t.Fatalf("expceted batch.Attempts() to return %v, got %v", 1, b.Attempts())
+	if b.Attempts(&HostInfo{}) != 1 {
+		t.Fatalf("expceted batch.Attempts() to return %v, got %v", 1, b.Attempts(&HostInfo{}))
 	}
 
 	// Test latency
-	if b.Latency() != 0 {
-		t.Fatalf("expected batch.Latency() to be 0, got %v", b.Latency())
+	if b.Latency(&HostInfo{}) != 0 {
+		t.Fatalf("expected batch.Latency() to be 0, got %v", b.Latency(&HostInfo{}))
 	}
 
 	b.totalLatency = 4
-	if b.Latency() != 4 {
-		t.Fatalf("expected batch.Latency() to return %v, got %v", 4, b.Latency())
+	if b.Latency(&HostInfo{}) != 4 {
+		t.Fatalf("expected batch.Latency() to return %v, got %v", 4, b.Latency(&HostInfo{}))
 	}
 
 	// Test Consistency

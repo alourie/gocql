@@ -127,7 +127,7 @@ func (c *cowHostList) remove(ip net.IP) bool {
 // RetryableQuery is an interface that represents a query or batch statement that
 // exposes the correct functions for the retry policy logic to evaluate correctly.
 type RetryableQuery interface {
-	Attempts() int
+	Attempts(host *HostInfo) int
 	SetConsistency(c Consistency)
 	GetConsistency() Consistency
 }
@@ -149,7 +149,7 @@ const (
 // See SimpleRetryPolicy as an example of implementing and using a RetryPolicy
 // interface.
 type RetryPolicy interface {
-	Attempt(RetryableQuery) bool
+	Attempt(RetryableQuery, *HostInfo) bool
 	GetRetryType(error) RetryType
 }
 
@@ -169,8 +169,8 @@ type SimpleRetryPolicy struct {
 
 // Attempt tells gocql to attempt the query again based on query.Attempts being less
 // than the NumRetries defined in the policy.
-func (s *SimpleRetryPolicy) Attempt(q RetryableQuery) bool {
-	return q.Attempts() <= s.NumRetries
+func (s *SimpleRetryPolicy) Attempt(q RetryableQuery, host *HostInfo) bool {
+	return q.Attempts(host) <= s.NumRetries
 }
 
 func (s *SimpleRetryPolicy) GetRetryType(err error) RetryType {
@@ -183,11 +183,11 @@ type ExponentialBackoffRetryPolicy struct {
 	Min, Max   time.Duration
 }
 
-func (e *ExponentialBackoffRetryPolicy) Attempt(q RetryableQuery) bool {
-	if q.Attempts() > e.NumRetries {
+func (e *ExponentialBackoffRetryPolicy) Attempt(q RetryableQuery, host *HostInfo) bool {
+	if q.Attempts(host) > e.NumRetries {
 		return false
 	}
-	time.Sleep(e.napTime(q.Attempts()))
+	time.Sleep(e.napTime(q.Attempts(host)))
 	return true
 }
 
@@ -232,8 +232,8 @@ type DowngradingConsistencyRetryPolicy struct {
 	ConsistencyLevelsToTry []Consistency
 }
 
-func (d *DowngradingConsistencyRetryPolicy) Attempt(q RetryableQuery) bool {
-	currentAttempt := q.Attempts()
+func (d *DowngradingConsistencyRetryPolicy) Attempt(q RetryableQuery, host *HostInfo) bool {
+	currentAttempt := q.Attempts(host)
 
 	if currentAttempt > len(d.ConsistencyLevelsToTry) {
 		return false

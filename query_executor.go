@@ -50,21 +50,20 @@ func (q *queryExecutor) executeQuery(qry ExecutableQuery) (*Iter, error) {
 		}
 
 		iter = q.attemptQuery(qry, conn)
+		iter.host = host
 		// Update host
 		hostResponse.Mark(iter.err)
 
 		if rt == nil {
-			iter.host = host
 			break
 		}
 
 		switch rt.GetRetryType(iter.err) {
 		case Retry:
-			for rt.Attempt(qry) {
+			for rt.Attempt(qry, host) {
 				iter = q.attemptQuery(qry, conn)
 				hostResponse.Mark(iter.err)
 				if iter.err == nil {
-					iter.host = host
 					return iter, nil
 				}
 				if rt.GetRetryType(iter.err) != Retry {
@@ -81,11 +80,10 @@ func (q *queryExecutor) executeQuery(qry ExecutableQuery) (*Iter, error) {
 
 		// Exit for loop if the query was successful
 		if iter.err == nil {
-			iter.host = host
 			return iter, nil
 		}
 
-		if !rt.Attempt(qry) {
+		if !rt.Attempt(qry, host) {
 			// What do here? Should we just return an error here?
 			break
 		}

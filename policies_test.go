@@ -263,12 +263,19 @@ func TestSimpleRetryPolicy(t *testing.T) {
 		{5, false},
 	}
 
+	// simulate host
+	host := &HostInfo{connectAddress: net.IPv4(10, 0, 0, 1)}
+
+	// initiate attempt counter
+	q.metrics = make(map[string]*QueryMetric)
+
+	// Now range over values
 	for _, c := range cases {
-		q.attempts = c.attempts
-		if c.allow && !rt.Attempt(q) {
+		q.metrics[host.connectAddress.String()] = &QueryMetric{attempts: c.attempts}
+		if c.allow && !rt.Attempt(q, host) {
 			t.Fatalf("should allow retry after %d attempts", c.attempts)
 		}
-		if !c.allow && rt.Attempt(q) {
+		if !c.allow && rt.Attempt(q, host) {
 			t.Fatalf("should not allow retry after %d attempts", c.attempts)
 		}
 	}
@@ -347,17 +354,24 @@ func TestDowngradingConsistencyRetryPolicy(t *testing.T) {
 		{16, false, reu1, Retry},
 	}
 
+	// simulate host
+	host := &HostInfo{connectAddress: net.IPv4(10, 0, 0, 1)}
+
+	// Initiate host metrics
+	q.metrics = make(map[string]*QueryMetric)
 	for _, c := range cases {
-		q.attempts = c.attempts
+		// Set attempts values
+		q.metrics[host.connectAddress.String()] = &QueryMetric{attempts: c.attempts}
 		if c.retryType != rt.GetRetryType(c.err) {
 			t.Fatalf("retry type should be %v", c.retryType)
 		}
-		if c.allow && !rt.Attempt(q) {
+		if c.allow && !rt.Attempt(q, host) {
 			t.Fatalf("should allow retry after %d attempts", c.attempts)
 		}
-		if !c.allow && rt.Attempt(q) {
+		if !c.allow && rt.Attempt(q, host) {
 			t.Fatalf("should not allow retry after %d attempts", c.attempts)
 		}
+
 	}
 }
 

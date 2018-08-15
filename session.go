@@ -658,6 +658,19 @@ func (s *Session) connect(host *HostInfo, errorHandler ConnErrorHandler) (*Conn,
 	return s.dial(host, s.connCfg, errorHandler)
 }
 
+type QueryMetric struct {
+	mu           sync.RWMutex
+	attempts     int
+	totalLatency int64
+}
+
+func (qm *QueryMetric) IncrementAttempts(i int) {
+	qm.attempts += i
+}
+func (qm *QueryMetric) IncrementLatency(val int64) {
+	qm.totalLatency += val
+}
+
 // Query represents a CQL statement that can be executed.
 type Query struct {
 	stmt                  string
@@ -673,14 +686,13 @@ type Query struct {
 	session               *Session
 	rt                    RetryPolicy
 	binding               func(q *QueryInfo) ([]interface{}, error)
-	attempts              int
-	totalLatency          int64
 	serialCons            SerialConsistency
 	defaultTimestamp      bool
 	defaultTimestampValue int64
 	disableSkipMetadata   bool
 	context               context.Context
 	idempotent            bool
+	metrics               map[string]*QueryMetric
 
 	disableAutoPage bool
 }
@@ -699,6 +711,20 @@ func (q *Query) defaultsFromSession() {
 	q.defaultTimestamp = s.cfg.DefaultTimestamp
 	q.idempotent = s.cfg.DefaultIdempotence
 	s.mu.RUnlock()
+
+	// Initiate metrics separately
+	q.metrics = initializeMetrics(s)
+}
+
+func initializeMetrics(s *Session) map[string]*QueryMetric {
+	metrics := make(map[string]*QueryMetric)
+	s.mu.RLock()
+	hostMap := s.pool.hostConnPools
+	for _, hostConn := range hostMap {
+		metrics[hostConn.host.connectAddress.String()] = &QueryMetric{attempts: 0, totalLatency: 0}
+	}
+	s.mu.RUnlock()
+	return metrics
 }
 
 // Statement returns the statement that was used to generate this query.
@@ -712,14 +738,16 @@ func (q Query) String() string {
 }
 
 //Attempts returns the number of times the query was executed.
-func (q *Query) Attempts() int {
-	return q.attempts
+func (q *Query) Attempts(host *HostInfo) int {
+	return q.metrics[host.connectAddress.String()].attempts
 }
 
 //Latency returns the average amount of nanoseconds per attempt of the query.
-func (q *Query) Latency() int64 {
-	if q.attempts > 0 {
-		return q.totalLatency / int64(q.attempts)
+func (q *Query) Latency(host *HostInfo) int64 {
+	attempts := q.metrics[host.connectAddress.String()].attempts
+	latency := q.metrics[host.connectAddress.String()].totalLatency
+	if attempts > 0 {
+		return latency / int64(attempts)
 	}
 	return 0
 }
@@ -808,9 +836,9 @@ func (q *Query) execute(conn *Conn) *Iter {
 }
 
 func (q *Query) attempt(keyspace string, end, start time.Time, iter *Iter, host *HostInfo) {
-	q.attempts++
-	q.totalLatency += end.Sub(start).Nanoseconds()
-	// TODO: track latencies per host and things as well instead of just total
+
+	q.IncrementAttempts(1, host)
+	q.IncrementLatency(end.Sub(start).Nanoseconds(), host)
 
 	if q.observer != nil {
 		q.observer.ObserveQuery(q.context, ObservedQuery{
@@ -823,6 +851,37 @@ func (q *Query) attempt(keyspace string, end, start time.Time, iter *Iter, host 
 			Err:       iter.err,
 		})
 	}
+}
+
+func (q *Query) IncrementAttempts(i int, host *HostInfo) {
+	metric := q.metrics[host.connectAddress.String()]
+	s := q.session
+	s.mu.Lock()
+	metric.IncrementAttempts(i)
+	s.mu.Unlock()
+}
+func (q *Query) IncrementLatency(val int64, host *HostInfo) {
+	metric := q.metrics[host.connectAddress.String()]
+	s := q.session
+	s.mu.Lock()
+	metric.IncrementLatency(val)
+	s.mu.Unlock()
+}
+
+// For testing with session
+func (q *Query) setAttempts(i int, host *HostInfo) {
+	metric := q.metrics[host.connectAddress.String()]
+	s := q.session
+	s.mu.Lock()
+	metric.attempts = i
+	s.mu.Unlock()
+}
+func (q *Query) setLatency(val int64, host *HostInfo) {
+	metric := q.metrics[host.connectAddress.String()]
+	s := q.session
+	s.mu.Lock()
+	metric.totalLatency = val
+	s.mu.Unlock()
 }
 
 func (q *Query) retryPolicy() RetryPolicy {
@@ -1431,12 +1490,12 @@ func (b *Batch) Keyspace() string {
 }
 
 // Attempts returns the number of attempts made to execute the batch.
-func (b *Batch) Attempts() int {
+func (b *Batch) Attempts(host *HostInfo) int {
 	return b.attempts
 }
 
 //Latency returns the average number of nanoseconds to execute a single attempt of the batch.
-func (b *Batch) Latency() int64 {
+func (b *Batch) Latency(host *HostInfo) int64 {
 	if b.attempts > 0 {
 		return b.totalLatency / int64(b.attempts)
 	}
