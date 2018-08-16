@@ -658,17 +658,9 @@ func (s *Session) connect(host *HostInfo, errorHandler ConnErrorHandler) (*Conn,
 	return s.dial(host, s.connCfg, errorHandler)
 }
 
-type QueryMetric struct {
-	mu           sync.RWMutex
+type queryMetric struct {
 	attempts     int
 	totalLatency int64
-}
-
-func (qm *QueryMetric) IncrementAttempts(i int) {
-	qm.attempts += i
-}
-func (qm *QueryMetric) IncrementLatency(val int64) {
-	qm.totalLatency += val
 }
 
 // Query represents a CQL statement that can be executed.
@@ -692,7 +684,7 @@ type Query struct {
 	disableSkipMetadata   bool
 	context               context.Context
 	idempotent            bool
-	metrics               map[string]*QueryMetric
+	metrics               map[string]*queryMetric
 
 	disableAutoPage bool
 }
@@ -714,13 +706,14 @@ func (q *Query) defaultsFromSession() {
 	s.mu.RUnlock()
 }
 
-func initializeMetrics(s *Session) map[string]*QueryMetric {
-	metrics := make(map[string]*QueryMetric)
+func initializeMetrics(s *Session) map[string]*queryMetric {
+	metrics := make(map[string]*queryMetric)
 	s.pool.mu.RLock()
 	defer s.pool.mu.RUnlock()
-	hostMap := s.pool.hostConnPools
-	for _, hostConn := range hostMap {
-		metrics[hostConn.host.connectAddress.String()] = &QueryMetric{attempts: 0, totalLatency: 0}
+
+	// Range over all defined IPs and prebuild metrics map
+	for _, hostConn := range s.pool.hostConnPools {
+		metrics[hostConn.host.connectAddress.String()] = &queryMetric{attempts: 0, totalLatency: 0}
 	}
 	return metrics
 }
@@ -853,6 +846,7 @@ func (q *Query) attempt(keyspace string, end, start time.Time, iter *Iter, host 
 			End:       end,
 			Rows:      iter.numRows,
 			Host:      host,
+			Metric:    q.metrics[host.connectAddress.String()],
 			Err:       iter.err,
 		})
 	}
@@ -862,30 +856,14 @@ func (q *Query) IncrementAttempts(i int, host *HostInfo) {
 	metric := q.metrics[host.connectAddress.String()]
 	s := q.session
 	s.mu.Lock()
-	metric.IncrementAttempts(i)
+	metric.attempts += i
 	s.mu.Unlock()
 }
 func (q *Query) IncrementLatency(val int64, host *HostInfo) {
 	metric := q.metrics[host.connectAddress.String()]
 	s := q.session
 	s.mu.Lock()
-	metric.IncrementLatency(val)
-	s.mu.Unlock()
-}
-
-// For testing with session
-func (q *Query) setAttempts(i int, host *HostInfo) {
-	metric := q.metrics[host.connectAddress.String()]
-	s := q.session
-	s.mu.Lock()
-	metric.attempts = i
-	s.mu.Unlock()
-}
-func (q *Query) setLatency(val int64, host *HostInfo) {
-	metric := q.metrics[host.connectAddress.String()]
-	s := q.session
-	s.mu.Lock()
-	metric.totalLatency = val
+	metric.totalLatency += val
 	s.mu.Unlock()
 }
 
@@ -1451,13 +1429,12 @@ type Batch struct {
 	Cons                  Consistency
 	rt                    RetryPolicy
 	observer              BatchObserver
-	attempts              int
-	totalLatency          int64
 	serialCons            SerialConsistency
 	defaultTimestamp      bool
 	defaultTimestampValue int64
 	context               context.Context
 	keyspace              string
+	metrics               map[string]*queryMetric
 }
 
 // NewBatch creates a new batch operation without defaults from the cluster
@@ -1496,13 +1473,14 @@ func (b *Batch) Keyspace() string {
 
 // Attempts returns the number of attempts made to execute the batch.
 func (b *Batch) Attempts(host *HostInfo) int {
-	return b.attempts
+	return b.metrics[host.connectAddress.String()].attempts
 }
 
 //Latency returns the average number of nanoseconds to execute a single attempt of the batch.
 func (b *Batch) Latency(host *HostInfo) int64 {
-	if b.attempts > 0 {
-		return b.totalLatency / int64(b.attempts)
+	metric := b.metrics[host.connectAddress.String()]
+	if metric.attempts > 0 {
+		return metric.totalLatency / int64(metric.attempts)
 	}
 	return 0
 }
@@ -1589,9 +1567,11 @@ func (b *Batch) WithTimestamp(timestamp int64) *Batch {
 }
 
 func (b *Batch) attempt(keyspace string, end, start time.Time, iter *Iter, host *HostInfo) {
-	b.attempts++
-	b.totalLatency += end.Sub(start).Nanoseconds()
-	// TODO: track latencies per host and things as well instead of just total
+
+	metric := b.metrics[host.connectAddress.String()]
+
+	metric.attempts++
+	metric.totalLatency += end.Sub(start).Nanoseconds()
 
 	if b.observer == nil {
 		return
@@ -1760,6 +1740,9 @@ type ObservedQuery struct {
 
 	// Host is the informations about the host that performed the query
 	Host *HostInfo
+
+	// The metrics per this host
+	Metric *queryMetric
 
 	// Err is the error in the query.
 	// It only tracks network errors or errors of bad cassandra syntax, in particular selects with no match return nil error

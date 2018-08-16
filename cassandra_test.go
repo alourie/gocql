@@ -1738,14 +1738,19 @@ func TestQueryStats(t *testing.T) {
 	session := createSession(t)
 	defer session.Close()
 	qry := session.Query("SELECT * FROM system.peers")
-	if err := qry.Exec(); err != nil {
+
+	// get iterator
+	iter := qry.Iter()
+
+	// Close the iterator and report any errors
+	if err := iter.Close(); err != nil {
 		t.Fatalf("query failed. %v", err)
 	} else {
-		if qry.Attempts(qry.Iter().Host()) < 1 {
+		if qry.Attempts(iter.host) < 1 {
 			t.Fatal("expected at least 1 attempt, but got 0")
 		}
-		if qry.Latency(qry.Iter().Host()) <= 0 {
-			t.Fatalf("expected latency to be greater than 0, but got %v instead.", qry.Latency(qry.Iter().Host()))
+		if qry.Latency(iter.host) <= 0 {
+			t.Fatalf("expected latency to be greater than 0, but got %v instead.", qry.Latency(iter.host))
 		}
 	}
 }
