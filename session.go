@@ -710,20 +710,18 @@ func (q *Query) defaultsFromSession() {
 	q.serialCons = s.cfg.SerialConsistency
 	q.defaultTimestamp = s.cfg.DefaultTimestamp
 	q.idempotent = s.cfg.DefaultIdempotence
-	s.mu.RUnlock()
-
-	// Initiate metrics separately
 	q.metrics = initializeMetrics(s)
+	s.mu.RUnlock()
 }
 
 func initializeMetrics(s *Session) map[string]*QueryMetric {
 	metrics := make(map[string]*QueryMetric)
-	s.mu.RLock()
+	s.pool.mu.RLock()
+	defer s.pool.mu.RUnlock()
 	hostMap := s.pool.hostConnPools
 	for _, hostConn := range hostMap {
 		metrics[hostConn.host.connectAddress.String()] = &QueryMetric{attempts: 0, totalLatency: 0}
 	}
-	s.mu.RUnlock()
 	return metrics
 }
 

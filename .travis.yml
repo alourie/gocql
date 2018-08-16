@@ -14,6 +14,7 @@ matrix:
 branches:
   only:
   - master
+  - queryMetricPerHost_1155
 
 env:
   global:
@@ -26,6 +27,8 @@ env:
     - CASS=2.2.5
       AUTH=false
     - CASS=3.0.8
+      AUTH=false
+    - CASS=3.11.2
       AUTH=false
 
 go:
