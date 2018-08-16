@@ -737,11 +737,18 @@ func (q Query) String() string {
 
 //Attempts returns the number of times the query was executed.
 func (q *Query) Attempts(host *HostInfo) int {
-	return q.metrics[host.connectAddress.String()].attempts
+	s := q.session
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	metric := q.metrics[host.connectAddress.String()]
+	return metric.attempts
 }
 
 //Latency returns the average amount of nanoseconds per attempt of the query.
 func (q *Query) Latency(host *HostInfo) int64 {
+	s := q.session
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	attempts := q.metrics[host.connectAddress.String()].attempts
 	latency := q.metrics[host.connectAddress.String()].totalLatency
 	if attempts > 0 {
