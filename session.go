@@ -834,8 +834,9 @@ func (q *Query) execute(conn *Conn) *Iter {
 
 func (q *Query) attempt(keyspace string, end, start time.Time, iter *Iter, host *HostInfo) {
 
-	q.IncrementAttempts(1, host)
-	q.IncrementLatency(end.Sub(start).Nanoseconds(), host)
+	hostMetric := q.metrics[host.connectAddress.String()]
+	hostMetric.attempts++
+	hostMetric.totalLatency += end.Sub(start).Nanoseconds()
 
 	if q.observer != nil {
 		q.observer.ObserveQuery(q.context, ObservedQuery{
@@ -849,19 +850,6 @@ func (q *Query) attempt(keyspace string, end, start time.Time, iter *Iter, host 
 			Err:       iter.err,
 		})
 	}
-}
-
-func (q *Query) IncrementAttempts(i int, host *HostInfo) {
-	s := q.session
-	s.mu.Lock()
-	q.metrics[host.connectAddress.String()].attempts += i
-	s.mu.Unlock()
-}
-func (q *Query) IncrementLatency(val int64, host *HostInfo) {
-	s := q.session
-	s.mu.Lock()
-	q.metrics[host.connectAddress.String()].totalLatency += val
-	s.mu.Unlock()
 }
 
 func (q *Query) retryPolicy() RetryPolicy {

@@ -454,7 +454,8 @@ func (c *controlConn) query(statement string, values ...interface{}) (iter *Iter
 		}
 
 		host := c.getConn().host
-		q.IncrementAttempts(1, host)
+		metric := q.metrics[host.connectAddress.String()]
+		metric.attempts++
 		if iter.err == nil || !c.retry.Attempt(q, host) {
 			break
 		}

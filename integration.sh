@@ -72,13 +72,13 @@ function run_tests() {
 		go test -run=TestAuthentication -tags "integration gocql_debug" -timeout=15s -runauth $args
 	else
 		sleep 1s
-		go test -tags "integration gocql_debug" -timeout=5m -race $args
+		go test -tags "integration gocql_debug" -timeout=10m -race $args
 
 		ccm clear
 		ccm start
 		sleep 1s
 
-		go test -tags "ccm gocql_debug" -timeout=5m -race $args
+		go test -tags "ccm gocql_debug" -timeout=10m -race $args
 	fi
 
 	ccm remove
