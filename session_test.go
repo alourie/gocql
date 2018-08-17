@@ -100,6 +100,9 @@ func (f funcQueryObserver) ObserveQuery(ctx context.Context, o ObservedQuery) {
 func TestQueryBasicAPI(t *testing.T) {
 	qry := &Query{}
 
+	// Initialise a session for locking
+	qry.session = &Session{}
+
 	// Initialise metrics map
 	qry.metrics = make(map[string]*queryMetric)
 
@@ -200,7 +203,7 @@ func TestBatchBasicAPI(t *testing.T) {
 	}
 
 	// Test LoggedBatch
-	b = NewBatch(LoggedBatch)
+	b = s.NewBatch(LoggedBatch)
 	if b.Type != LoggedBatch {
 		t.Fatalf("expected batch.Type to be '%v', got '%v'", LoggedBatch, b.Type)
 	}
@@ -210,7 +213,7 @@ func TestBatchBasicAPI(t *testing.T) {
 	host := &HostInfo{connectAddress: net.ParseIP(ip)}
 
 	// Test attempts
-	b.metrics[ip].attempts = 1
+	b.metrics[ip] = &queryMetric{attempts: 1}
 	if b.Attempts(host) != 1 {
 		t.Fatalf("expceted batch.Attempts() to return %v, got %v", 1, b.Attempts(host))
 	}
@@ -220,7 +223,7 @@ func TestBatchBasicAPI(t *testing.T) {
 		t.Fatalf("expected batch.Latency() to be 0, got %v", b.Latency(host))
 	}
 
-	b.metrics[ip].totalLatency = 4
+	b.metrics[ip] = &queryMetric{totalLatency: 4}
 	if b.Latency(host) != 4 {
 		t.Fatalf("expected batch.Latency() to return %v, got %v", 4, b.Latency(host))
 	}

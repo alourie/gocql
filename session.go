@@ -1453,7 +1453,9 @@ func (s *Session) NewBatch(typ BatchType) *Batch {
 		Cons:             s.cons,
 		defaultTimestamp: s.cfg.DefaultTimestamp,
 		keyspace:         s.cfg.Keyspace,
+		metrics:          initializeMetrics(s),
 	}
+
 	s.mu.RUnlock()
 	return batch
 }

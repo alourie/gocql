@@ -23,6 +23,7 @@ func TestBatch_Errors(t *testing.T) {
 	}
 
 	b := session.NewBatch(LoggedBatch)
+
 	b.Query("SELECT * FROM batch_errors WHERE id=2 AND val=?", nil)
 	if err := session.ExecuteBatch(b); err == nil {
 		t.Fatal("expected to get error for invalid query in batch")

@@ -369,15 +369,6 @@ func TestQueryMultinodeWithMetrics(t *testing.T) {
 	}
 	defer db.Close()
 
-	go func() {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(5 * time.Second):
-			t.Errorf("no timeout")
-		}
-	}()
-
 	rt := &SimpleRetryPolicy{NumRetries: 1}
 
 	observer := &testQueryObserverWithMetrics{}
