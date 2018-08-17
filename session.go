@@ -733,8 +733,7 @@ func (q *Query) Attempts(host *HostInfo) int {
 	s := q.session
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	metric := q.metrics[host.connectAddress.String()]
-	return metric.attempts
+	return q.metrics[host.connectAddress.String()].attempts
 }
 
 //Latency returns the average amount of nanoseconds per attempt of the query.
@@ -853,17 +852,15 @@ func (q *Query) attempt(keyspace string, end, start time.Time, iter *Iter, host 
 }
 
 func (q *Query) IncrementAttempts(i int, host *HostInfo) {
-	metric := q.metrics[host.connectAddress.String()]
 	s := q.session
 	s.mu.Lock()
-	metric.attempts += i
+	q.metrics[host.connectAddress.String()].attempts += i
 	s.mu.Unlock()
 }
 func (q *Query) IncrementLatency(val int64, host *HostInfo) {
-	metric := q.metrics[host.connectAddress.String()]
 	s := q.session
 	s.mu.Lock()
-	metric.totalLatency += val
+	q.metrics[host.connectAddress.String()].totalLatency += val
 	s.mu.Unlock()
 }
 
@@ -1435,6 +1432,7 @@ type Batch struct {
 	context               context.Context
 	keyspace              string
 	metrics               map[string]*queryMetric
+	mu                    sync.RWMutex
 }
 
 // NewBatch creates a new batch operation without defaults from the cluster
@@ -1473,6 +1471,8 @@ func (b *Batch) Keyspace() string {
 
 // Attempts returns the number of attempts made to execute the batch.
 func (b *Batch) Attempts(host *HostInfo) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	return b.metrics[host.connectAddress.String()].attempts
 }
 

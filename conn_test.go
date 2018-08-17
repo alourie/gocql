@@ -56,11 +56,15 @@ func TestJoinHostPort(t *testing.T) {
 	}
 }
 
-func testCluster(addr string, proto protoVersion) *ClusterConfig {
-	cluster := NewCluster(addr)
+func testMultiNodeCluster(addresses []string, proto protoVersion) *ClusterConfig {
+	cluster := NewCluster(addresses...)
 	cluster.ProtoVersion = int(proto)
 	cluster.disableControlConn = true
 	return cluster
+}
+
+func testCluster(addr string, proto protoVersion) *ClusterConfig {
+	return testMultiNodeCluster([]string{addr}, proto)
 }
 
 func TestSimple(t *testing.T) {
@@ -140,8 +144,12 @@ func TestClosed(t *testing.T) {
 	}
 }
 
+func newMultiNodeTestSession(addresses []string, proto protoVersion) (*Session, error) {
+	return testMultiNodeCluster(addresses, proto).CreateSession()
+}
+
 func newTestSession(addr string, proto protoVersion) (*Session, error) {
-	return testCluster(addr, proto).CreateSession()
+	return newMultiNodeTestSession([]string{addr}, proto)
 }
 
 func TestDNSLookupConnected(t *testing.T) {
@@ -318,6 +326,89 @@ func TestQueryRetry(t *testing.T) {
 	// the query will only be attempted once, but is being retried
 	if requests != int64(rt.NumRetries) {
 		t.Fatalf("failed to retry the query %v time(s). Query executed %v times", rt.NumRetries, requests-1)
+	}
+}
+
+type testQueryObserverWithMetrics struct {
+	metrics map[string]*queryMetric
+}
+
+func (o *testQueryObserverWithMetrics) ObserveQuery(ctx context.Context, q ObservedQuery) {
+	if o.metrics == nil {
+		o.metrics = make(map[string]*queryMetric)
+	}
+	o.metrics[q.Host.ConnectAddress().String()] = q.Metric
+
+	// Uncomment and add verbosity?
+	// Logger.Printf("Observed query %q. Returned %v rows, took %v on host %q with %v attempts and total latency %v. Error: %q\n",
+	//	q.Statement, q.Rows, q.End.Sub(q.Start), q.Host.ConnectAddress().String(), q.Metric.attempts, q.Metric.totalLatency, q.Err)
+}
+func (o *testQueryObserverWithMetrics) GetMetric(host *HostInfo) *queryMetric {
+	return o.metrics[host.ConnectAddress().String()]
+}
+
+func TestQueryMultinodeWithMetrics(t *testing.T) {
+
+	// Build a 2 node cluster to test mapping
+	var nodes []*TestServer
+	var addresses = []string{
+		"127.0.0.1",
+		"127.0.0.2",
+	}
+	// Can do with 1 context for all servers
+	ctx := context.Background()
+	for _, ip := range addresses {
+		srv := NewTestServerWithAddress(ip+":0", t, defaultProto, ctx)
+		defer srv.Stop()
+		nodes = append(nodes, srv)
+	}
+
+	db, err := newMultiNodeTestSession([]string{nodes[0].Address, nodes[1].Address}, defaultProto)
+	if err != nil {
+		t.Fatalf("NewCluster: %v", err)
+	}
+	defer db.Close()
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+			t.Errorf("no timeout")
+		}
+	}()
+
+	rt := &SimpleRetryPolicy{NumRetries: 1}
+
+	observer := &testQueryObserverWithMetrics{}
+	qry := db.Query("kill").RetryPolicy(rt).Observer(observer)
+	if err := qry.Exec(); err == nil {
+		t.Fatalf("expected error")
+	}
+
+	for i, ip := range addresses {
+		host := &HostInfo{connectAddress: net.ParseIP(ip)}
+		observedMetric := observer.GetMetric(host)
+
+		requests := atomic.LoadInt64(&nodes[i].nKillReq)
+		attempts := qry.Attempts(host)
+		if requests != int64(attempts) {
+			t.Fatalf("expected requests %v to match query attempts %v", requests, attempts)
+		}
+
+		// the query will only be attempted once, but is being retried
+		if requests != int64(rt.NumRetries) {
+			t.Fatalf("failed to retry the query %v time(s). Query executed %v times", rt.NumRetries, requests-1)
+		}
+
+		if attempts != observedMetric.attempts {
+			t.Fatalf("expected observed attempts %v to match query attempts %v", observedMetric.attempts, attempts)
+		}
+
+		latency := qry.Latency(host)
+		if latency != observedMetric.totalLatency {
+			t.Fatalf("expected observed latency %v to match query latency %v", observedMetric.totalLatency, attempts)
+		}
 	}
 }
 
@@ -691,8 +782,9 @@ func TestFrameHeaderObserver(t *testing.T) {
 	}
 }
 
-func NewTestServer(t testing.TB, protocol uint8, ctx context.Context) *TestServer {
-	laddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
+func NewTestServerWithAddress(addr string, t testing.TB, protocol uint8, ctx context.Context) *TestServer {
+
+	laddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -722,6 +814,11 @@ func NewTestServer(t testing.TB, protocol uint8, ctx context.Context) *TestServe
 	go srv.serve()
 
 	return srv
+
+}
+
+func NewTestServer(t testing.TB, protocol uint8, ctx context.Context) *TestServer {
+	return NewTestServerWithAddress("127.0.0.1:0", t, protocol, ctx)
 }
 
 func NewSSLTestServer(t testing.TB, protocol uint8, ctx context.Context) *TestServer {
