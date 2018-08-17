@@ -223,7 +223,7 @@ func TestBatchBasicAPI(t *testing.T) {
 		t.Fatalf("expected batch.Latency() to be 0, got %v", b.Latency(host))
 	}
 
-	b.metrics[ip] = &queryMetric{totalLatency: 4}
+	b.metrics[ip] = &queryMetric{attempts: 1, totalLatency: 4}
 	if b.Latency(host) != 4 {
 		t.Fatalf("expected batch.Latency() to return %v, got %v", 4, b.Latency(host))
 	}
