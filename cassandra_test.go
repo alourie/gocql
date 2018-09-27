@@ -1403,6 +1403,36 @@ func injectInvalidPreparedStatement(t *testing.T, session *Session, table string
 	return stmt, conn
 }
 
+func TestChange_Schema(t *testing.T) {
+	s := createSession(t)
+	defer s.Close()
+
+	fmt.Println("CREATE TABLE")
+	if err := createTable(s, "CREATE TABLE gocql_test.schemaChange (val int, val2 int, PRIMARY KEY (val))"); err != nil {
+		t.Fatal("create table:", err)
+	}
+
+	fmt.Println("INSERT 1")
+	if err := s.Query("INSERT INTO gocql_test.schemaChange (val, val2) VALUES (?, ?)", 113, 1).Exec(); err != nil {
+		t.Fatalf("insert into schemaChange failed, err '%v'", err)
+	}
+
+	fmt.Println("DROP val2")
+	if err := s.Query("ALTER TABLE gocql_test.schemaChange DROP val2").Exec(); err != nil {
+		t.Fatalf("Drop of val2 column failed, err '%v'", err)
+	}
+
+	fmt.Println("CHANGE TYPE")
+	if err := s.Query("ALTER TABLE gocql_test.schemaChange ADD val2 double").Exec(); err != nil {
+		t.Fatalf("Adding new column val2 failed, err '%v'", err)
+	}
+
+	fmt.Println("INSERT 2")
+	if err := s.Query("INSERT INTO gocql_test.schemaChange (val, val2) VALUES (?, ?)", 113, 1.1).Exec(); err != nil {
+		t.Fatalf("insert 2 into schemaChange failed, err '%v'", err)
+	}
+}
+
 func TestPrepare_MissingSchemaPrepare(t *testing.T) {
 	s := createSession(t)
 	conn := getRandomConn(t, s)
